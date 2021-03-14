@@ -88,12 +88,12 @@ fn lat_long_to_utm_nad27(lat: f64, long: f64) -> (f64, f64, u32) {
     let alpha_1 = 1.0 / 2.0 * n - 2.0 / 3.0 * n.powi(2) + 5.0 / 16.0 * n.powi(3);
     let alpha_2 = 13.0 / 48.0 * n.powi(2) - 3.0 / 5.0 * n.powi(3);
     let alpha_3 = 61.0 / 240.0 * n.powi(3);
-    let beta_1 = 1.0 / 2.0 * n - 2.0 / 3.0 * n.powi(2) + 37.0 / 96.0 * n.powi(3);
-    let beta_2 = 1.0 / 48.0 * n.powi(2) + 1.0 / 15.0 * n.powi(3);
-    let beta_3 = 17.0 / 480.0 * n.powi(3);
-    let delta_1 = 2.0 * n - 2.0 / 3.0 * n.powi(2) - 2.0 * n.powi(3);
-    let delta_2 = 7.0 / 3.0 * n.powi(2) - 8.0 / 5.0 * n.powi(3);
-    let delta_3 = 56.0 / 15.0 * n.powi(3);
+    // let beta_1 = 1.0 / 2.0 * n - 2.0 / 3.0 * n.powi(2) + 37.0 / 96.0 * n.powi(3);
+    // let beta_2 = 1.0 / 48.0 * n.powi(2) + 1.0 / 15.0 * n.powi(3);
+    // let beta_3 = 17.0 / 480.0 * n.powi(3);
+    // let delta_1 = 2.0 * n - 2.0 / 3.0 * n.powi(2) - 2.0 * n.powi(3);
+    // let delta_2 = 7.0 / 3.0 * n.powi(2) - 8.0 / 5.0 * n.powi(3);
+    // let delta_3 = 56.0 / 15.0 * n.powi(3);
 
     let zone = ((long + 186.0) / 6.0) as u32;
     let center_meridian_rad = (-183.0 + zone as f64 * 6.0).to_radians();
@@ -104,16 +104,16 @@ fn lat_long_to_utm_nad27(lat: f64, long: f64) -> (f64, f64, u32) {
     let t = (lat_rad.sin().atanh() - 2.0 * n.sqrt() / (1.0 + n) * (2.0 * n.sqrt() / (1.0 + n) * lat_rad.sin()).atanh()).sinh();
     let xi_prime = (t / (long_rad - center_meridian_rad).cos()).atan();
     let eta_prime = ((long_rad - center_meridian_rad).sin() / (1.0 + t.powi(2)).sqrt()).atanh();
-    let sigma = 1.0 + (
-        2.0 * 1.0 * alpha_1 * (2.0 * 1.0 * xi_prime).cos() * (2.0 * 1.0 * eta_prime).cosh() +
-        2.0 * 2.0 * alpha_2 * (2.0 * 2.0 * xi_prime).cos() * (2.0 * 2.0 * eta_prime).cosh() +
-        2.0 * 3.0 * alpha_3 * (2.0 * 3.0 * xi_prime).cos() * (2.0 * 3.0 * eta_prime).cosh()
-    );
-    let tau = (
-        2.0 * 1.0 * alpha_1 * (2.0 * 1.0 * xi_prime).sin() * (2.0 * 1.0 * eta_prime).sinh() +
-        2.0 * 2.0 * alpha_2 * (2.0 * 2.0 * xi_prime).sin() * (2.0 * 2.0 * eta_prime).sinh() +
-        2.0 * 3.0 * alpha_3 * (2.0 * 3.0 * xi_prime).sin() * (2.0 * 3.0 * eta_prime).sinh()
-    );
+    // let sigma = 1.0 + (
+    //     2.0 * 1.0 * alpha_1 * (2.0 * 1.0 * xi_prime).cos() * (2.0 * 1.0 * eta_prime).cosh() +
+    //     2.0 * 2.0 * alpha_2 * (2.0 * 2.0 * xi_prime).cos() * (2.0 * 2.0 * eta_prime).cosh() +
+    //     2.0 * 3.0 * alpha_3 * (2.0 * 3.0 * xi_prime).cos() * (2.0 * 3.0 * eta_prime).cosh()
+    // );
+    // let tau = (
+    //     2.0 * 1.0 * alpha_1 * (2.0 * 1.0 * xi_prime).sin() * (2.0 * 1.0 * eta_prime).sinh() +
+    //     2.0 * 2.0 * alpha_2 * (2.0 * 2.0 * xi_prime).sin() * (2.0 * 2.0 * eta_prime).sinh() +
+    //     2.0 * 3.0 * alpha_3 * (2.0 * 3.0 * xi_prime).sin() * (2.0 * 3.0 * eta_prime).sinh()
+    // );
 
     let easting = 500000.0 + 0.9996 * A * (eta_prime + (
         alpha_1 * (2.0 * 1.0 * xi_prime).cos() * (2.0 * 1.0 * eta_prime).sinh() +
@@ -168,7 +168,7 @@ fn main() -> Result<()> {
     let x_scale = (right_easting - left_easting) / collage_img.width() as f64;
     let y_scale = -(top_northing - bottom_northing) / collage_img.height() as f64;
 
-    let mut dataset = gdal::Dataset::open_ex(
+    let dataset = gdal::Dataset::open_ex(
         Path::new(filename),
         Some(1),
         None,
