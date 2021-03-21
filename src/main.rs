@@ -77,58 +77,6 @@ fn read_tpq_header(input: &mut impl Read) -> Result<TpqHeader> {
     });
 }
 
-fn lat_long_to_utm_nad27(lat: f64, long: f64) -> (f64, f64, u32) {
-    // https://en.wikipedia.org/wiki/Universal_Transverse_Mercator_coordinate_system#Simplified_formulae
-    // https://en.wikipedia.org/wiki/North_American_Datum#North_American_Datum_of_1927
-    let semimajor_axis = 6378206.4;
-    let flattening: f64 = 1.0 / 294.978698214;
-
-    let n = flattening / (2.0 - flattening);
-    let A = semimajor_axis / (1.0 + n) * (1.0 + n.powi(2) / 4.0 + n.powi(4) / 64.0);
-    let alpha_1 = 1.0 / 2.0 * n - 2.0 / 3.0 * n.powi(2) + 5.0 / 16.0 * n.powi(3);
-    let alpha_2 = 13.0 / 48.0 * n.powi(2) - 3.0 / 5.0 * n.powi(3);
-    let alpha_3 = 61.0 / 240.0 * n.powi(3);
-    // let beta_1 = 1.0 / 2.0 * n - 2.0 / 3.0 * n.powi(2) + 37.0 / 96.0 * n.powi(3);
-    // let beta_2 = 1.0 / 48.0 * n.powi(2) + 1.0 / 15.0 * n.powi(3);
-    // let beta_3 = 17.0 / 480.0 * n.powi(3);
-    // let delta_1 = 2.0 * n - 2.0 / 3.0 * n.powi(2) - 2.0 * n.powi(3);
-    // let delta_2 = 7.0 / 3.0 * n.powi(2) - 8.0 / 5.0 * n.powi(3);
-    // let delta_3 = 56.0 / 15.0 * n.powi(3);
-
-    let zone = ((long + 186.0) / 6.0) as u32;
-    let center_meridian_rad = (-183.0 + zone as f64 * 6.0).to_radians();
-
-    let lat_rad = lat.to_radians();
-    let long_rad = long.to_radians();
-
-    let t = (lat_rad.sin().atanh() - 2.0 * n.sqrt() / (1.0 + n) * (2.0 * n.sqrt() / (1.0 + n) * lat_rad.sin()).atanh()).sinh();
-    let xi_prime = (t / (long_rad - center_meridian_rad).cos()).atan();
-    let eta_prime = ((long_rad - center_meridian_rad).sin() / (1.0 + t.powi(2)).sqrt()).atanh();
-    // let sigma = 1.0 + (
-    //     2.0 * 1.0 * alpha_1 * (2.0 * 1.0 * xi_prime).cos() * (2.0 * 1.0 * eta_prime).cosh() +
-    //     2.0 * 2.0 * alpha_2 * (2.0 * 2.0 * xi_prime).cos() * (2.0 * 2.0 * eta_prime).cosh() +
-    //     2.0 * 3.0 * alpha_3 * (2.0 * 3.0 * xi_prime).cos() * (2.0 * 3.0 * eta_prime).cosh()
-    // );
-    // let tau = (
-    //     2.0 * 1.0 * alpha_1 * (2.0 * 1.0 * xi_prime).sin() * (2.0 * 1.0 * eta_prime).sinh() +
-    //     2.0 * 2.0 * alpha_2 * (2.0 * 2.0 * xi_prime).sin() * (2.0 * 2.0 * eta_prime).sinh() +
-    //     2.0 * 3.0 * alpha_3 * (2.0 * 3.0 * xi_prime).sin() * (2.0 * 3.0 * eta_prime).sinh()
-    // );
-
-    let easting = 500000.0 + 0.9996 * A * (eta_prime + (
-        alpha_1 * (2.0 * 1.0 * xi_prime).cos() * (2.0 * 1.0 * eta_prime).sinh() +
-        alpha_2 * (2.0 * 2.0 * xi_prime).cos() * (2.0 * 2.0 * eta_prime).sinh() +
-        alpha_3 * (2.0 * 3.0 * xi_prime).cos() * (2.0 * 3.0 * eta_prime).sinh()
-    ));
-    let northing = 0.0 + 0.9996 * A * (xi_prime + (
-        alpha_1 * (2.0 * 1.0 * xi_prime).sin() * (2.0 * 1.0 * eta_prime).cosh() +
-        alpha_2 * (2.0 * 2.0 * xi_prime).sin() * (2.0 * 2.0 * eta_prime).cosh() +
-        alpha_3 * (2.0 * 3.0 * xi_prime).sin() * (2.0 * 3.0 * eta_prime).cosh()
-    ));
-
-    return (northing, easting, zone);
-}
-
 fn main() -> Result<()> {
     let mut tpq_data = Vec::<u8>::new();
     io::stdin().read_to_end(&mut tpq_data)?;
@@ -162,12 +110,6 @@ fn main() -> Result<()> {
     let filename = &format!("map_{}_{}.tif", header.w_long, header.n_lat);
     collage_img.save(filename)?;
 
-    let (top_northing, left_easting, zone) = lat_long_to_utm_nad27(header.n_lat, header.w_long);
-    let (bottom_northing, right_easting, _) = lat_long_to_utm_nad27(header.s_lat, header.e_long);
-
-    let x_scale = (right_easting - left_easting) / collage_img.width() as f64;
-    let y_scale = -(top_northing - bottom_northing) / collage_img.height() as f64;
-
     let dataset = gdal::Dataset::open_ex(
         Path::new(filename),
         Some(1),
@@ -175,14 +117,23 @@ fn main() -> Result<()> {
         None,
         None,
     )?;
-    dataset.set_spatial_ref(&gdal::spatial_ref::SpatialRef::from_epsg(26700 + zone)?)?;
+
+    let spatial_ref = r#"GEODCRS["NAD 27",
+    DATUM["North American Datum of 1927",
+        ELLIPSOID["NAD 27", 6378206.4, 294.978698214, LENGTHUNIT["metre", 1]]],
+    CS[ellipsoidal, 2],
+        AXIS["Latitude (lat)", north, ORDER[1]],
+        AXIS["Longitude (lon)", east, ORDER[2]],
+        ANGLEUNIT["degree", 0.0174532925199433]]"#;
+
+    dataset.set_spatial_ref(&gdal::spatial_ref::SpatialRef::from_wkt(&spatial_ref)?)?;
     dataset.set_geo_transform(&[
-        left_easting + x_scale / 2.0,
-        x_scale,
+        header.w_long,
+        (header.e_long - header.w_long) / collage_img.width() as f64,
         0.0,
-        top_northing + y_scale / 2.0,
+        header.n_lat,
         0.0,
-        y_scale,
+        -(header.n_lat - header.s_lat) / collage_img.height() as f64,
     ])?;
 
     Ok(())
