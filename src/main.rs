@@ -1,5 +1,4 @@
 use std::cmp::min;
-use std::fs::File;
 use std::io::{self, BufRead, Cursor, Read};
 use std::path::Path;
 
@@ -33,13 +32,13 @@ struct TpqHeader {
 fn read_tpq_u32(input: &mut impl Read) -> Result<u32> {
     let mut buf: [u8; 4] = Default::default();
     input.read_exact(&mut buf)?;
-    return Ok(u32::from_le_bytes(buf));
+    Ok(u32::from_le_bytes(buf))
 }
 
 fn read_tpq_f64(input: &mut impl Read) -> Result<f64> {
     let mut buf: [u8; 8] = Default::default();
     input.read_exact(&mut buf)?;
-    return Ok(f64::from_le_bytes(buf));
+    Ok(f64::from_le_bytes(buf))
 }
 
 fn read_tpq_string(input: &mut impl Read, size: usize) -> Result<String> {
@@ -47,11 +46,11 @@ fn read_tpq_string(input: &mut impl Read, size: usize) -> Result<String> {
     input.read_exact(&mut buf[..size])?;
     let mut chars = Vec::<u8>::new();
     let chars_read = Cursor::new(buf).read_until(0, &mut chars)?;
-    return Ok(String::from_utf8_lossy(&chars[..min(chars_read - 1, size)]).to_string());
+    Ok(String::from_utf8_lossy(&chars[..min(chars_read - 1, size)]).to_string())
 }
 
 fn read_tpq_header(input: &mut impl Read) -> Result<TpqHeader> {
-    return Ok(TpqHeader {
+    Ok(TpqHeader {
         version: read_tpq_u32(input)?,
         w_long: read_tpq_f64(input)?,
         n_lat: read_tpq_f64(input)?,
@@ -74,7 +73,7 @@ fn read_tpq_header(input: &mut impl Read) -> Result<TpqHeader> {
         lat_count: read_tpq_u32(input)?,
         maplet_width: read_tpq_u32(input)?,
         maplet_height: read_tpq_u32(input)?,
-    });
+    })
 }
 
 fn main() -> Result<()> {
@@ -110,13 +109,7 @@ fn main() -> Result<()> {
     let filename = &format!("map_{}_{}.tif", header.w_long, header.n_lat);
     collage_img.save(filename)?;
 
-    let dataset = gdal::Dataset::open_ex(
-        Path::new(filename),
-        Some(1),
-        None,
-        None,
-        None,
-    )?;
+    let dataset = gdal::Dataset::open_ex(Path::new(filename), Some(1), None, None, None)?;
 
     let spatial_ref = r#"GEODCRS["NAD 27",
     DATUM["North American Datum of 1927",
