@@ -28,3 +28,6 @@ Example:
 ```
 topodump AZ_D02/D34113/N34113G3.tpq N34113G3.tif
 ```
+
+## Credits
+Significantly informed by Thomas J. Trebisky's [gtopo](https://github.com/trebisky/gtopo).
