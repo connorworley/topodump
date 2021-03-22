@@ -1,9 +1,11 @@
 use std::cmp::min;
-use std::io::{self, BufRead, Cursor, Read};
+use std::fs::{remove_file, File};
+use std::io::{BufRead, Cursor, Read};
 use std::path::Path;
 
-use image::io::Reader as ImageReader;
-use image::{imageops, ImageFormat, Rgba, RgbaImage};
+use clap::{crate_authors, crate_version, Clap};
+use gdal::{spatial_ref::SpatialRef, Dataset, DatasetOptions, GdalOpenFlags};
+use image::{imageops, io::Reader as ImageReader, ImageFormat, Rgba, RgbaImage};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -76,13 +78,62 @@ fn read_tpq_header(input: &mut impl Read) -> Result<TpqHeader> {
     })
 }
 
+fn set_geo_data<P: AsRef<Path>>(
+    path: P,
+    header: &TpqHeader,
+    width: f64,
+    height: f64,
+) -> Result<()> {
+    let dataset = Dataset::open_ex(
+        path.as_ref(),
+        DatasetOptions {
+            open_flags: GdalOpenFlags::GDAL_OF_UPDATE,
+            allowed_drivers: None,
+            open_options: None,
+            sibling_files: None,
+        },
+    )?;
+
+    let spatial_ref = r#"GEODCRS["NAD 27",
+    DATUM["North American Datum of 1927",
+        ELLIPSOID["NAD 27", 6378206.4, 294.978698214, LENGTHUNIT["metre", 1]]],
+    CS[ellipsoidal, 2],
+        AXIS["Latitude (lat)", north, ORDER[1]],
+        AXIS["Longitude (lon)", east, ORDER[2]],
+        ANGLEUNIT["degree", 0.0174532925199433]]"#;
+
+    dataset.set_spatial_ref(&SpatialRef::from_wkt(&spatial_ref)?)?;
+    dataset.set_geo_transform(&[
+        header.w_long,
+        (header.e_long - header.w_long) / width,
+        0.0,
+        header.n_lat,
+        0.0,
+        -(header.n_lat - header.s_lat) / height,
+    ])?;
+
+    Ok(())
+}
+
+#[derive(Clap)]
+#[clap(
+    about = "Convert tpq files to GeoTIFF format",
+    author = crate_authors!(),
+    version = crate_version!()
+)]
+struct Args {
+    input: String,
+    output: String,
+}
+
 fn main() -> Result<()> {
+    let args = Args::parse();
+
     let mut tpq_data = Vec::<u8>::new();
-    io::stdin().read_to_end(&mut tpq_data)?;
+    File::open(&args.input)?.read_to_end(&mut tpq_data)?;
     let mut cursor = Cursor::new(&tpq_data);
 
     let header = read_tpq_header(&mut cursor)?;
-    eprintln!("{:#?}", header);
 
     cursor.set_position(1024);
 
@@ -106,28 +157,25 @@ fn main() -> Result<()> {
         }
     }
 
-    let filename = &format!("map_{}_{}.tif", header.w_long, header.n_lat);
-    collage_img.save(filename)?;
+    collage_img.save(&args.output)?;
 
-    let dataset = gdal::Dataset::open_ex(Path::new(filename), Some(1), None, None, None)?;
-
-    let spatial_ref = r#"GEODCRS["NAD 27",
-    DATUM["North American Datum of 1927",
-        ELLIPSOID["NAD 27", 6378206.4, 294.978698214, LENGTHUNIT["metre", 1]]],
-    CS[ellipsoidal, 2],
-        AXIS["Latitude (lat)", north, ORDER[1]],
-        AXIS["Longitude (lon)", east, ORDER[2]],
-        ANGLEUNIT["degree", 0.0174532925199433]]"#;
-
-    dataset.set_spatial_ref(&gdal::spatial_ref::SpatialRef::from_wkt(&spatial_ref)?)?;
-    dataset.set_geo_transform(&[
-        header.w_long,
-        (header.e_long - header.w_long) / collage_img.width() as f64,
-        0.0,
-        header.n_lat,
-        0.0,
-        -(header.n_lat - header.s_lat) / collage_img.height() as f64,
-    ])?;
+    set_geo_data(
+        &args.output,
+        &header,
+        collage_img.width() as f64,
+        collage_img.height() as f64,
+    )
+    .map_err(|geo_err| {
+        eprintln!("Errors etting geo data: {}", geo_err);
+        eprintln!("Attempting to remove {}...", &args.output);
+        match remove_file(&args.output) {
+            Ok(()) => {
+                eprintln!("Successfully removed {}", &args.output);
+                geo_err
+            }
+            Err(remove_err) => panic!("Failed to remove {}: {}", &args.output, remove_err,),
+        }
+    })?;
 
     Ok(())
 }
