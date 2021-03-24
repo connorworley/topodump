@@ -182,14 +182,14 @@ fn main() -> Result<()> {
         collage_img.height() as f64,
     )
     .map_err(|geo_err| {
-        eprintln!("Errors etting geo data: {}", geo_err);
+        eprintln!("Error setting geo data: {}", geo_err);
         eprintln!("Attempting to remove {}...", &args.output);
         match remove_file(&args.output) {
             Ok(()) => {
                 eprintln!("Successfully removed {}", &args.output);
                 geo_err
             }
-            Err(remove_err) => panic!("Failed to remove {}: {}", &args.output, remove_err,),
+            Err(remove_err) => panic!("Failed to remove {}: {}", &args.output, remove_err),
         }
     })?;
 
