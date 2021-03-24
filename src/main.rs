@@ -5,7 +5,10 @@ use std::path::Path;
 
 use clap::{crate_authors, crate_version, Clap};
 use gdal::{spatial_ref::SpatialRef, Dataset, DatasetOptions, GdalOpenFlags};
-use image::{imageops, io::Reader as ImageReader, ImageFormat, Rgba, RgbaImage};
+use image::{
+    imageops, io::Reader as ImageReader, DynamicImage, GenericImageView, ImageFormat, Rgba,
+    RgbaImage,
+};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -27,8 +30,8 @@ struct TpqHeader {
     color_depth: u32,
     long_count: u32,
     lat_count: u32,
-    maplet_width: u32,
-    maplet_height: u32,
+    maplet_screen_width: u32,
+    maplet_screen_height: u32,
 }
 
 fn read_tpq_u32(input: &mut impl Read) -> Result<u32> {
@@ -73,8 +76,8 @@ fn read_tpq_header(input: &mut impl Read) -> Result<TpqHeader> {
             read_tpq_u32(input)?
         },
         lat_count: read_tpq_u32(input)?,
-        maplet_width: read_tpq_u32(input)?,
-        maplet_height: read_tpq_u32(input)?,
+        maplet_screen_width: read_tpq_u32(input)?,
+        maplet_screen_height: read_tpq_u32(input)?,
     })
 }
 
@@ -137,27 +140,40 @@ fn main() -> Result<()> {
 
     cursor.set_position(1024);
 
+    let mut read_jpg = || -> Result<DynamicImage> {
+        let maplet_offset = read_tpq_u32(&mut cursor)? as usize;
+        let maplet_cursor = Cursor::new(&tpq_data[maplet_offset..]);
+        Ok(ImageReader::with_format(maplet_cursor, ImageFormat::Jpeg).decode()?)
+    };
+
+    let first_maplet = read_jpg()?;
+    let (maplet_width, maplet_height) = first_maplet.dimensions();
+
     let mut collage_img = RgbaImage::from_pixel(
-        header.long_count * header.maplet_width,
-        header.lat_count * header.maplet_height,
+        header.long_count * maplet_width,
+        header.lat_count * maplet_height,
         Rgba([255, 255, 255, 255]),
     );
 
+    imageops::overlay(&mut collage_img, &first_maplet, 0, 0);
+
     for i in 0..header.lat_count {
         for j in 0..header.long_count {
-            let maplet_offset = read_tpq_u32(&mut cursor)? as usize;
-            let maplet_cursor = Cursor::new(&tpq_data[maplet_offset..]);
-            let img = ImageReader::with_format(maplet_cursor, ImageFormat::Jpeg).decode()?;
+            if i == 0 && j == 0 {
+                // We've already read the first jpg
+                continue;
+            }
+            let maplet = read_jpg()?;
             imageops::overlay(
                 &mut collage_img,
-                &img,
-                j * header.maplet_width,
-                i * header.maplet_height,
+                &maplet,
+                j * maplet_width,
+                i * maplet_height,
             );
         }
     }
 
-    collage_img.save(&args.output)?;
+    collage_img.save_with_format(&args.output, ImageFormat::Tiff)?;
 
     set_geo_data(
         &args.output,
